@@ -6,9 +6,16 @@ import torch
 
 import ReducedResNet32 as SResnet18
 
+import random
+import numpy as np
 
 featuresPath = './Features/Core50_reducedresnet18_32.pt'
 pretrainedPath = './PretrainedModel/reducedresnet18_ImageNet32.pth.tar'
+
+#with open("seed.txt", "r") as f:
+#    seed = int(f.read().strip())
+
+
 bs = 50
 
 
@@ -25,6 +32,16 @@ normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 train_transform = Compose([ToTensor(), Resize(32), RandomHorizontalFlip(), normalize])
 test_transform = Compose([ToTensor(), Resize(32), normalize])
+
+def set_seed(seed = 123):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 
 
@@ -43,17 +60,29 @@ def initFeaturesExtractor():
 
 
 class CORE50REDUCEDRESNET18():
-    def __init__(self, experiences = 9):
+    def __init__(self, experiences = 9, seed = 123):
         
-        self.lamda = 0.9
-        self.beta = 1.1
-
+        #self.alpha = 0.9
+        #self.T = 2.3
+        set_seed(seed)
+        
         self.n_class = 50
         self.n_features = 160
+        """
+        if os.path.exists(featuresPath):
+            print('Loading features from file...')
+            loaded = torch.load(featuresPath)
+            trainset = torch.utils.data.TensorDataset(loaded['traindata'], loaded['trainlabel'])
+            testset = torch.utils.data.TensorDataset(loaded['testdata'], loaded['testlabel'])
 
-        self.train_features, self.test_features = createFeatures(experiences)
+            self.train_features, self.test_features = splitFeatures(trainset, testset, self.n_class, start = 10, step = 5)
 
-def createFeatures(experiences = 9):
+        else:
+            self.train_features, self.test_features = createFeatures(experiences)
+        """
+        self.train_features, self.test_features = createFeatures(experiences, seed)
+
+def createFeatures(experiences = 9, seed = 123):
 
     model = initFeaturesExtractor()
     print('Creating features....')
@@ -97,7 +126,7 @@ def createFeatures(experiences = 9):
 
 
         train_set = torch.utils.data.TensorDataset(dict['traindata'], dict['trainlabel'])
-        train_features.append(torch.utils.data.DataLoader(train_set, batch_size=bs, shuffle=True, num_workers=0))
+        train_features.append(torch.utils.data.DataLoader(train_set, batch_size=bs, shuffle=True, num_workers=0, generator=torch.Generator().manual_seed(seed)))
              
 
         for (data, target, _) in test_loader:          
@@ -118,3 +147,56 @@ def createFeatures(experiences = 9):
 
     #torch.save(dict_all_dataset, featuresPath)
     return train_features, test_features
+
+
+def splitFeatures(trainset, testset, n_class, start, step):
+    print('Spliting features.......')
+    train_features=[]
+    test_features=[]
+
+    train_features.append(torch.utils.data.DataLoader(SubDataset(trainset,[j for j in range(start)]), batch_size=bs, shuffle=True, num_workers=0))
+    test_features.append(torch.utils.data.DataLoader(SubDataset(testset,[j for j in range(start)]), batch_size=bs, shuffle=False, num_workers=0))
+    
+    for i in range(start, n_class, step):
+        a = SubDataset(trainset,[i+j for j in range(step)])
+        x = torch.utils.data.DataLoader(a, batch_size=bs, shuffle=True, num_workers=0)
+        train_features.append(x)
+        test_features.append(torch.utils.data.DataLoader(SubDataset(testset,[i+j for j in range(step)]), batch_size=bs, shuffle=False, num_workers=0))
+
+    return train_features, test_features
+
+from torch.utils.data import Dataset
+class SubDataset(Dataset):
+    def __init__(self, original_dataset, sub_labels, target_transform=None,transform=None):
+        super().__init__()
+        self.dataset = original_dataset
+        self.sub_indeces = []
+        for index in range(len(self.dataset)):
+            if hasattr(original_dataset, "targets"):
+                if self.dataset.target_transform is None:
+                    label = self.dataset.targets[index]
+                else:
+                    label = self.dataset.target_transform(self.dataset.targets[index])
+            else:
+                label = self.dataset[index][1]
+            if label in sub_labels:
+                self.sub_indeces.append(index)
+        self.target_transform = target_transform
+        self.transform=transform
+
+    def __len__(self):
+        return len(self.sub_indeces)
+
+    def __getitem__(self, index):
+        sample = self.dataset[self.sub_indeces[index]]
+        if self.transform:
+            sample=self.transform(sample)
+        if self.target_transform:
+            target = self.target_transform(sample[1])
+            sample = (sample[0], target)
+        return sample
+
+
+
+if __name__ == '__main__':
+    dataset = CORE50REDUCEDRESNET18(experiences = 9)

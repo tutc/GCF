@@ -5,8 +5,6 @@ Code adapted from https://github.com/Julien-pour/Dynamic-Sparse-Distributed-Memo
 """
 import torch
 
-from sklearn.neighbors import LocalOutlierFactor
-#from sklearn.cluster import KMeans
 from Clustering.KMeansClustering import kmeans
 
 import torch.nn as nn
@@ -14,7 +12,6 @@ import torch.nn.functional as F
 
 from tqdm import tqdm
 
-import matplotlib.pyplot as plt
 
 import numpy as np
 import random
@@ -23,20 +20,6 @@ import Benchmarks as benchmarks
 
 device = torch.device("cuda")
 
-global_seed = 4680
-
-def set_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    global_seed = seed    
-
-
-
 def E_distances(X,Y):
 
     return torch.sqrt( torch.sum(torch.pow(X, 2),dim=1).view(-1,1) -2 * torch.mm(X,Y.T) + torch.sum(torch.pow(Y, 2),dim=1) )
@@ -44,7 +27,7 @@ def E_distances(X,Y):
 
 
 class Main(nn.Module):
-    def __init__(self,Time_period, n_mini_batch,n_class=10,n_feat=384):
+    def __init__(self,Time_period, n_mini_batch,n_class=10,n_feat=160):
         super(Main, self).__init__()
         self.n_feat=n_feat
         self.n_class = n_class
@@ -52,14 +35,17 @@ class Main(nn.Module):
         self.ema = 2/(Time_period+1)
         self.n_mini_batch = n_mini_batch
         self.count=0
-        self.T=1
+        self.beta=1.1
         
         self.Address=torch.zeros(1,n_feat).to(device)
 
         self.M=torch.zeros(1,self.n_class)
         self.p_norm="fro"
         
-        self.num_clusters = 200
+        self.num_clusters = 100
+        
+     
+        
         
         self.global_error=0
         self.Time_period_Temperature = self.ema
@@ -73,15 +59,6 @@ class Main(nn.Module):
         self.stock_feat=torch.tensor([]).to(device)
         self.forgetting=[]
 
-        self.GCF = True
-        # Pruning purpose
-        self.N_prune=5000
-        self.prune_mode="balance"#naive,balance
-        self.n_neighbors=20
-        self.contamination="auto"
-        self.pruning=False
-
-        
         self.cum_acc_activ=False
 
         self.batch_test=True
@@ -99,7 +76,6 @@ class Main(nn.Module):
         self.M=torch.zeros(1,self.n_class).to(device)
         
         
-        
         self.global_error=0
         self.memory_global_error=torch.zeros(1)
         self.memory_min_distance=torch.zeros(1)
@@ -108,74 +84,29 @@ class Main(nn.Module):
 
         self.check = False
 
+    
     def forward(self,inputs):
-        
+
         with torch.no_grad():
             out = inputs
             pred=torch.tensor([]).to(device)
             if self.batch_test:
                 distance=E_distances(inputs,self.Address)
-                soft_norm = F.softmin(distance/self.T,dim=-1)
+                soft_norm = F.softmin(distance/self.beta,dim=-1)
                 pred = torch.matmul(soft_norm, self.M)
+
             else:
                 for idx_x in range(len(out)):
                     x=out[idx_x]
                     distance=x-self.Address
                     norm=torch.norm(distance, p=self.p_norm, dim=-1)
                     # softmin vs argmin
-                    soft_norm = F.softmin(norm/self.T,dim=-1)
+                    soft_norm = F.softmin(norm/self.beta,dim=-1)
                     soft_pred = torch.matmul(soft_norm, self.M.to(device)).view(-1)
                     pred=torch.cat((pred,soft_pred.view(1,-1)),0)
 
         return pred
     
-    
-    def prune(self):
-
-        N_pruning=self.N_prune
-        n_class = self.M.size(1)
-        if len(self.Address)>N_pruning:
-            
-            clf = LocalOutlierFactor(n_neighbors=min(len(self.Address),self.n_neighbors), contamination=self.contamination)
-            A=self.Address
-            M=self.M
-            
-            y_pred = clf.fit_predict(A.cpu())#>0 inliner
-            X_scores = clf.negative_outlier_factor_
-            x_scor=torch.tensor(X_scores)
-            if self.prune_mode=="naive":
-                if len(A)>N_pruning:
-                    prun_N_addr=len(A)-N_pruning
-                    val,ind=torch.topk(x_scor,prun_N_addr)
-                    idx_remove=[True]*len(A)
-                    for i in ind:
-                        idx_remove[i] = False
-                    self.M=self.M[idx_remove]
-                    self.Address=self.Address[idx_remove]
-
-            if self.prune_mode=="balance":
-                prun_N_addr=len(A)-N_pruning
-
-
-                val, ind = torch.sort(x_scor, descending=True)
-
-                count=prun_N_addr
-                idx_remove=[True]*len(A)
-                idx=0
-                arg_m=torch.argmax(M,axis=1)
-                N_remaining=torch.bincount(arg_m)
-                while count!=0:
-
-                    idx+=1
-                    indice=ind[idx]
-                    if N_remaining[arg_m[indice]]>(N_pruning//n_class):
-                        N_remaining[arg_m[indice]]-=1
-                        idx_remove[ind[idx]] = False
-
-                        count-=1
-
-                self.M=self.M[idx_remove]
-                self.Address=self.Address[idx_remove]
     
     def test_idx(self,test_dataset_10_way_split,idx_test):
         with torch.no_grad():
@@ -209,12 +140,12 @@ class Main(nn.Module):
         
             one_hot=torch.zeros(1,self.n_class).to(device).float()
             one_hot[0][label] = 1
-
-            cluster_centers = kmeans(X=A, num_clusters=self.num_clusters, distance='euclidean', device=device, seed = global_seed)
+            #cluster_centers = kmeans(X=A, num_clusters=self.num_clusters, distance='euclidean', device=device)
+            cluster_centers = kmeans(X=A, num_clusters=self.threshold, distance='euclidean', device=device)
             self.Address=torch.cat((self.Address, cluster_centers))
             self.M=torch.cat((self.M,one_hot.repeat(len(cluster_centers),1)))
    
-    def train__test_n_way_split(self, train_dataset_10_way_split, test_dataset_10_way_split,coef_global_error=1,ema_global_error=None, plot=True, save_feat=False):
+    def train__test_n_way_split(self, train_dataset_10_way_split, test_dataset_10_way_split,coef_global_error=1,ema_global_error=None, save_feat=False):
 
         count = 0
         acc_test=torch.zeros(len(train_dataset_10_way_split))
@@ -247,28 +178,23 @@ class Main(nn.Module):
                         max_value, idx_max=torch.min(norm,0)
 
                         self.global_error+= self.ema_Temperature*(max_value-self.global_error)
-                            
+
                         if abs(norm[idx_max])>=self.global_error*coef_global_error:
                             
                             self.Address=torch.cat((self.Address,x.view(1,-1)))
                             targets_one_hot=F.one_hot(targets[idx_x], num_classes=self.n_class).float()
 
                             self.M=torch.cat((self.M,targets_one_hot.view(1,-1)))
-                            
-                            if self.GCF:
-                                self.clustering(targets[idx_x])
+                            self.clustering(targets[idx_x])
                         else:
                             delta_address = distance
-                            soft_norm = F.softmin(norm/self.T,dim=-1)
+                            soft_norm = F.softmin(norm/self.beta,dim=-1)
 
                             self.Address = self.Address + self.ema * torch.mul(soft_norm.view(-1,1),delta_address)
                             targets_one_hot=F.one_hot(targets[idx_x], num_classes=self.n_class).float()
 
                             self.M += self.ema * torch.mul(soft_norm.view(-1,1),(targets_one_hot-self.M))   
-                        
-
-                if self.pruning:
-                    self.prune()
+                    
 
                 if self.cum_acc_activ:
                     acc,last_acc = self.test_idx(test_dataset_10_way_split,idx_seen)
@@ -289,12 +215,10 @@ class Main(nn.Module):
                 correct=0
                 correct_softmin=0
                 if self.batch_test:
-                    #print(' Batch test')
                     acc,last_acc = self.test_idx(test_dataset_10_way_split,[idx_loader])
                     acc_test[idx_loader]=0 
                     acc_test_after_all_task_softmin[idx_loader]=last_acc
                 else:
-                    #print(' ------------Non batch test-----------')
                     for batch_idx, (inputs, targets) in enumerate(test_dataset_10_way_split[idx_loader]):
                         out=inputs.to(device)
                         targets=targets.type(torch.LongTensor)
@@ -304,7 +228,7 @@ class Main(nn.Module):
                             distance=x-self.Address
                             norm=torch.norm(distance, p=self.p_norm, dim=-1)
                             #softmin
-                            soft_norm=F.softmin(norm/self.T,dim=-1)
+                            soft_norm=F.softmin(norm/self.beta,dim=-1)
                             soft_pred = torch.matmul(soft_norm, self.M.to(device)).view(-1)
 
                             arg_soft_pred = torch.argmax(soft_pred)
@@ -324,33 +248,10 @@ class Main(nn.Module):
 
                 self.acc_aft_all_task=acc_test_after_all_task_softmin
 
-            if plot :#and acc_test.mean().item()>80:
-                plt.figure(figsize=(15,10))
-                plt.plot(acc_test)
-                plt.plot(acc_test_just_after_learn_1_task)
-                plt.plot(acc_test_after_all_task_softmin)
-#                 plt.plot(acc_test_after_each_task_softmin)
-                plt.legend(["after learn all task","after learn each task","after learn all task with softmin"])
-                plt.title("accuracy on all task = {:.2f} %".format(acc_test.mean().item())+"same accuracy with softmin (with T= {:.2f}) =".format(self.T)+"{:.3f}".format(acc_test_after_all_task_softmin.mean().item())+" on 10 way split cifar 10,\n Time_period = "+ str(Time_period)+ " number of data per class = "+str(self.n_mini_batch*bs)+" address use "+str(self.M.size(0)))
-                plt.ylabel("test accuracy %")
-                plt.xlabel("task 0 to task 9")
-                for i in range(0,self.n_class):
-                    plt.vlines(i,min(acc_test),100,colors='k', linestyles='dotted', label='end task 0')
-                plt.show()
-                plt.figure(figsize=(15,10))
-                n_taskss=(np.linspace(0,len(test_dataset_10_way_split),len(self.memory_global_error)))
-                plt.plot(n_taskss,self.memory_global_error)
-                n_taskss=(np.linspace(0,len(test_dataset_10_way_split),len(self.memory_min_distance)))
-                plt.plot(n_taskss,self.memory_min_distance, alpha=0.3)
-                n_taskss=(np.linspace(0,len(test_dataset_10_way_split),len(self.memory_count_address)))
-                plt.plot(n_taskss,self.memory_count_address/max(self.memory_count_address)*100)
-                for i in range(1,len(test_dataset_10_way_split)+1):
-                    plt.vlines(i,0,70,colors='k', linestyles='dotted', label='end task 0')
-                plt.show()
             return acc_test_after_each_task_softmin, acc_test_after_all_task_softmin
         
     
-    def grid_search_spread_factor(self, Time_period, n_mini_batch, train_dataset_10_way_split, test_dataset_10_way_split,N_try=5,ema_global_error="same",coef_global_error=1,plot=True,random_ordering=True):
+    def grid_search_spread_factor(self, Time_period, n_mini_batch, train_dataset_10_way_split, test_dataset_10_way_split,N_try=5,ema_global_error="same",coef_global_error=1,random_ordering=True):
 
         acc_test=torch.zeros(N_try,len(train_dataset_10_way_split))
 
@@ -366,10 +267,11 @@ class Main(nn.Module):
         self.n_mini_batch=n_mini_batch
         self.Time_period = Time_period
         self.ema = 2/(Time_period+1)
+
         
         for idx_try in tqdm(range(N_try)):
             self.reset()
-            Acc_test, Acc_test_softmin = self.train__test_n_way_split(train_dataset_10_way_split, test_dataset_10_way_split,ema_global_error=ema_global_error,plot=False,coef_global_error=coef_global_error)
+            Acc_test, Acc_test_softmin = self.train__test_n_way_split(train_dataset_10_way_split, test_dataset_10_way_split,ema_global_error=ema_global_error,coef_global_error=coef_global_error)
             if self.cum_acc_activ:
                 cum_acc[idx_try]=torch.tensor(self.cum_acc)
             self.forgetting.append((self.acc_after_each_task*100-self.acc_aft_all_task).mean())
@@ -393,10 +295,8 @@ class Main(nn.Module):
         return acc_soft_mean,N_address_use.mean(),acc_test,cum_acc
 
 
-def run(data, n_clusters, alpha = 1, beta = 1, memorysize = 2000, GCF = True, seed = 123):    
+def run(data, memorysize = 3000):    
 
-    set_seed(seed)
-    
     bs = 50
     N_try = 5
     n_mini_batch = 55
@@ -404,51 +304,38 @@ def run(data, n_clusters, alpha = 1, beta = 1, memorysize = 2000, GCF = True, se
     Time_period = 500
     Time_period_temperature = 150
     exp = Main(Time_period ,n_mini_batch,n_class=data.n_class,n_feat=data.n_features) 
-    exp.GCF = GCF
-    #exp.GCF = True
-    #exp.n_neighbors = 1000
-    #exp.contamination = "auto"  #trial.suggest_uniform("contamination", 0.1,0.5)
     exp.p_norm = "fro"
-    exp.T = beta 
-    
-    exp.pruning = True
-    exp.N_prune = memorysize
-    exp.first_time = 0
-
+    exp.beta = data.beta 
     exp.cum_acc_activ = True
     exp.Time_period_Temperature = Time_period_temperature
-    random_ordering = True 
-    exp.threshold = (int)(memorysize /data.n_class )
-    exp.num_clusters = n_clusters
-
-    accuracy_c100_100w,N_address_use_c100_100w,acc_test_softmin,cum_sum = exp.grid_search_spread_factor(Time_period, n_mini_batch, data.train_features,data.test_features,N_try,ema_global_error="diff",coef_global_error=alpha, random_ordering = random_ordering)
+    random_ordering = True
+    exp.threshold = (int)(memorysize /data.n_class)
+    #print("threshold: ")
+    #print(exp.threshold)
+    accuracy_c100_100w,N_address_use_c100_100w,acc_test_softmin,cum_sum = exp.grid_search_spread_factor(Time_period, n_mini_batch, data.train_features,data.test_features,N_try,ema_global_error="diff",coef_global_error=data.lamda, random_ordering = random_ordering)
     
-    #last_acc = accuracy_c100_100w.mean()    #-accuracy_c100_100w.std()
-    #avg_acc = cum_sum.mean()
-    #mem_size = len(exp.Address)
-
-    last_acc = round(float(accuracy_c100_100w.mean()),2)    
-    avg_acc = round(float(cum_sum.mean()),2)
+    last_acc = float(accuracy_c100_100w.mean())    
+    avg_acc = float(cum_sum.mean())
     mem_size = int(len(exp.Address))
 
-    return avg_acc, last_acc, mem_size, seed
+
+
+    return avg_acc, last_acc, mem_size
 
 if __name__ == '__main__':
 
-#    dataset = benchmarks.Core50ReducedResnet18.CORE50REDUCEDRESNET18(experiences = 9)
-#    avg_acc, last_acc, mem_size = run(dataset,0.9,0.8,2000)
+    #dataset = benchmarks.Cifar10ReducedResnet18.CIFAR10REDUCEDRESNET18(start = 2, step = 2) #Done
+    #dataset = benchmarks.Cifar10Resnet18.CIFAR10RESNET18(start = 2, step = 2) #Done
+    #dataset = benchmarks.Core50ReducedResnet18.CORE50REDUCEDRESNET18() #Done
+    dataset = benchmarks.Core50Resnet18.CORE50RESNET18() #Done
+    avg_acc, last_acc, mem_size = run(dataset, 10000)
 
+    #dataset = benchmarks.Cub200Resnet50.CUB200RESNET50(start = 2, step = 2) #Done
+    #dataset = benchmarks.Cub200Resnet50.CUB200RESNET50(start = 5, step = 5) #Done
+    #dataset = benchmarks.Cifar100Resnet50.CIFAR100RESNET50(start = 2, step = 2) #Done
+    #dataset = benchmarks.Cifar100Resnet50.CIFAR100RESNET50(start = 5, step = 5) #Done
+    #avg_acc, last_acc, mem_size = run(dataset, 3000)
 
-
-#    dataset = benchmarks.Cub200Resnet18.CUB200RESNET18(start = 2, step = 2)
-#    avg_acc, last_acc, mem_size = run(dataset, 7, 0.9, 0.8, 3000)
-
-#    dataset = benchmarks.Cifar10Resnet50.CIFAR10RESNET50(start = 2, step = 2)#    avg_acc, last_acc, mem_size = run(dataset, 100, 0.9, 0.8, 2000)
-#    avg_acc, last_acc, mem_size = run(dataset, 100, 0.9, 0.8, 2000)
-
-    dataset = benchmarks.Cifar100Resnet18.CIFAR100RESNET18(start = 2, step = 2)
-    avg_acc, last_acc, mem_size = run(dataset, 15, 0.9, 0.8, 3000)
-
-    print(avg_acc)
-    print(last_acc)
-    print(mem_size)
+    print('Average accuracy: ', avg_acc)
+    print('Last accuracy: ', last_acc)
+    print('Memory used: ', mem_size)
