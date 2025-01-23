@@ -1,58 +1,57 @@
-from avalanche.benchmarks.classic import SplitCIFAR100
+from avalanche.benchmarks.classic import SplitCUB200
 from torchvision import transforms
 import os
 import torch
 import torchvision.models as models
 
 
-featuresPath = './Features/cifar100_resnet50.pt'
-pretrainedPath = './PretrainedModel/resnet50_ImageNet32.pth.tar'
+featuresPath = './Features/cub200_resnet50'
+
 
 bs = 50
 
+normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
 train_transform = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
     transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    normalize,
 ])
 
 test_transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
     transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    normalize,
 ])
+
 
 def initFeaturesExtractor():
 
-    assert os.path.isdir('PretrainedModel'), 'Error: no pretrained directory found!'
-    assert os.path.isfile(pretrainedPath), 'Error: no pretrained file found!'
-    checkpoint = torch.load(pretrainedPath)
-
-    model = models.resnet50().cuda()
-    model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-
+    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1).cuda()
     model = torch.nn.DataParallel(model).cuda()
-    model.load_state_dict(checkpoint['state_dict'])
     model = torch.nn.Sequential(*list(model.module.children())[:-1])
 
     return model
 
-class CIFAR100RESNET50():
-    def __init__(self, start = 2, step = 2):
+class CUB200RESNET50():
+    def __init__(self, start = 100, step = 2):
         
-        self.lamda = 0.8
-        self.beta = 1.1
+        self.lamda = 0.7
+        self.beta = 1.4
 
-        self.n_class = 100
+        self.n_class = 200
         self.n_features = 2048
+        global featuresPath 
+        featuresPath = featuresPath + 'Step' + str(step) + '.pt'
 
-        experiences = self.n_class//step
-        self.train_features, self.test_features = createFeatures(experiences)
+        self.train_features, self.test_features = createFeatures(start, step)
 
-def createFeatures(experiences):
+def createFeatures(start = 100, step = 2):
     print('Creating features....')
     
-    benchmark = SplitCIFAR100(n_experiences=experiences, train_transform=train_transform, eval_transform=test_transform)
+    benchmark = SplitCUB200(n_experiences = ( (200 - start) // step) + 1, classes_first_batch=start, train_transform=train_transform, eval_transform=test_transform)
     
     featuresExtrator = initFeaturesExtractor()
 
@@ -84,8 +83,8 @@ def getFeatures(model, trainset, testset):
     dict = {'traindata': empty, 'trainlabel':empty, 'testdata': empty, 'testlabel':empty}
 
     model.eval()
-    for (data, target, _) in train_loader:          
-
+    for (data, target, _) in train_loader:         
+    
         data, target = data.cuda(), target.cuda()
         
         with torch.no_grad():
@@ -95,7 +94,8 @@ def getFeatures(model, trainset, testset):
             dict['traindata'] =  torch.cat((dict['traindata'], output))
             dict['trainlabel'] =  torch.cat((dict['trainlabel'], target))
 
-    for (data, target, _) in test_loader:   
+    for (data, target, _) in test_loader:     
+    
         data, target = data.cuda(), target.cuda()
         
         with torch.no_grad():
@@ -121,3 +121,4 @@ def saveFeatures(dict, featuresPath = featuresPath):
         old_dict['testlabel'] = torch.cat((old_dict['testlabel'], dict['testlabel']))
         dict = old_dict
     torch.save(dict, featuresPath)
+    print('features saved')

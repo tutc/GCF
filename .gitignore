@@ -8,10 +8,8 @@ Clustering_Simple.py
 Clustering2.py
 Core50ReducedResnet18_32.py
 Core50ReducedResnet18_224.py
-Core50Resnet18.py
 CUB200_2011.py
 Cub200Resnet50_Old.py
-Cub200Resnet50.py
 Dataset.py
 Features.py
 Main_Backup.py

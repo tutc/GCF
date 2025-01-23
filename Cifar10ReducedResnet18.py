@@ -3,9 +3,15 @@ from torchvision import transforms
 import os
 import torch
 import ReducedResNet32 as SResnet32
+import random
+import numpy as np
+
 
 featuresPath = './Features/cifar10_reducedresnet18.pt'
 pretrainedPath = './PretrainedModel/reducedresnet18_ImageNet32.pth.tar'
+
+with open("seed.txt", "r") as f:
+    seed = int(f.read().strip())
 
 bs = 50
 
@@ -20,6 +26,18 @@ test_transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
+
+def set_seed():
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+# Đặt seed cho tính tái lập
+set_seed()
 
 def initFeaturesExtractor():
 
@@ -37,8 +55,8 @@ def initFeaturesExtractor():
 class CIFAR10REDUCEDRESNET18():
     def __init__(self, start = 2, step = 2):
         
-        self.alpha = 0.9
-        self.T = 2.3
+        #self.alpha = 0.9
+        #self.T = 2.3
 
         self.n_class = 10
         self.n_features = 160
@@ -65,18 +83,15 @@ def createFeatures(experiences):
     train_features = []
     test_features = []
 
-    i = 0
     for (train_exp, test_exp) in zip(benchmark.train_stream, benchmark.test_stream):
         current_train_set = train_exp.dataset
         current_test_set = test_exp.dataset
-        print('Exp ' + str(i))
-        i = i + 1 
-        print(len(current_train_set))
-        print(len(current_test_set))
-        #current_train_features, current_test_features = getFeatures(featuresExtrator, current_train_set, current_test_set)
+
+        current_train_features, current_test_features = getFeatures(featuresExtrator, current_train_set, current_test_set)
 
         #train_features.append(torch.utils.data.DataLoader(current_train_features, batch_size=bs, shuffle=True, num_workers=0))
-        #test_features.append(torch.utils.data.DataLoader(current_test_features, batch_size=bs, shuffle=False, num_workers=0))
+        train_features.append(torch.utils.data.DataLoader(current_train_features, batch_size=bs, shuffle=True, num_workers=0, generator=torch.Generator().manual_seed(seed)))
+        test_features.append(torch.utils.data.DataLoader(current_test_features, batch_size=bs, shuffle=False, num_workers=0))
 
 
     return train_features, test_features
@@ -132,7 +147,7 @@ def getFeatures(model, trainset, testset):
             dict['testdata'] =  torch.cat((dict['testdata'], output))
             dict['testlabel'] =  torch.cat((dict['testlabel'], target))
     
-    saveFeatures(dict, featuresPath)
+    #saveFeatures(dict, featuresPath)
 
     train_set = torch.utils.data.TensorDataset(dict['traindata'], dict['trainlabel'])
     test_set = torch.utils.data.TensorDataset(dict['testdata'], dict['testlabel'])

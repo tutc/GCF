@@ -45,24 +45,14 @@ def initFeaturesExtractor():
 class CIFAR10RESNET18():
     def __init__(self, start = 2, step = 2):
         
-        self.alpha = 0.9
-        self.T = 2.3
+        self.lamda = 0.8
+        self.beta = 1.1
 
         self.n_class = 10
         self.n_features = 512
-
-        if os.path.exists(featuresPath):
-            print('Loading features from file...')
-            loaded = torch.load(featuresPath)
-            trainset = torch.utils.data.TensorDataset(loaded['traindata'], loaded['trainlabel'])
-            testset = torch.utils.data.TensorDataset(loaded['testdata'], loaded['testlabel'])
-
-            self.train_features, self.test_features = splitFeatures(trainset, testset, self.n_class, start, step)
-
-        else:
-            experiences = self.n_class // step
-            self.train_features, self.test_features = createFeatures(experiences)
-        
+	
+        experiences = self.n_class // step
+        self.train_features, self.test_features = createFeatures(experiences)
 
 def createFeatures(experiences):
     print('Creating features....')
@@ -87,23 +77,6 @@ def createFeatures(experiences):
     return train_features, test_features
 
 
-def splitFeatures(trainset, testset, n_class, start, step):
-    print('Spliting features.......')
-    train_features=[]
-    test_features=[]
-
-    train_features.append(torch.utils.data.DataLoader(SubDataset(trainset,[j for j in range(start)]), batch_size=bs, shuffle=True, num_workers=0))
-    test_features.append(torch.utils.data.DataLoader(SubDataset(testset,[j for j in range(start)]), batch_size=bs, shuffle=False, num_workers=0))
-    
-    for i in range(start, n_class, step):
-        
-        train_features.append(torch.utils.data.DataLoader(SubDataset(trainset,[i+j for j in range(step)]), batch_size=bs, shuffle=True, num_workers=0))
-        test_features.append(torch.utils.data.DataLoader(SubDataset(testset,[i+j for j in range(step)]), batch_size=bs, shuffle=False, num_workers=0))
-
-    return train_features, test_features
-
-
-
 def getFeatures(model, trainset, testset):
 
     mini_bs = 1
@@ -116,8 +89,7 @@ def getFeatures(model, trainset, testset):
     dict = {'traindata': empty, 'trainlabel':empty, 'testdata': empty, 'testlabel':empty}
 
     model.eval()
-    for (data, target, _) in train_loader:             #Avalanche
-    #for (data, target) in train_loader:
+    for (data, target, _) in train_loader:             
 
         data, target = data.cuda(), target.cuda()
         
@@ -128,8 +100,8 @@ def getFeatures(model, trainset, testset):
             dict['traindata'] =  torch.cat((dict['traindata'], output))
             dict['trainlabel'] =  torch.cat((dict['trainlabel'], target))
 
-    for (data, target, _) in test_loader:      #Avalanche
-    #for (data, target) in test_loader:
+    for (data, target, _) in test_loader:      
+
         data, target = data.cuda(), target.cuda()
         
         with torch.no_grad():
@@ -145,39 +117,3 @@ def getFeatures(model, trainset, testset):
     test_set = torch.utils.data.TensorDataset(dict['testdata'], dict['testlabel'])
 
     return train_set, test_set
-
-
-from torch.utils.data import Dataset
-class SubDataset(Dataset):
-    def __init__(self, original_dataset, sub_labels, target_transform=None,transform=None):
-        super().__init__()
-        self.dataset = original_dataset
-        self.sub_indeces = []
-        for index in range(len(self.dataset)):
-            if hasattr(original_dataset, "targets"):
-                if self.dataset.target_transform is None:
-                    label = self.dataset.targets[index]
-                else:
-                    label = self.dataset.target_transform(self.dataset.targets[index])
-            else:
-                label = self.dataset[index][1]
-            if label in sub_labels:
-                self.sub_indeces.append(index)
-        self.target_transform = target_transform
-        self.transform=transform
-
-    def __len__(self):
-        return len(self.sub_indeces)
-
-    def __getitem__(self, index):
-        sample = self.dataset[self.sub_indeces[index]]
-        if self.transform:
-            sample=self.transform(sample)
-        if self.target_transform:
-            target = self.target_transform(sample[1])
-            sample = (sample[0], target)
-        return sample
-
-
-if __name__ == '__main__':
-    initFeaturesExtractor()
