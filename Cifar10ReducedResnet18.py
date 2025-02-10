@@ -1,0 +1,195 @@
+from avalanche.benchmarks.classic import SplitCIFAR10
+from torchvision import transforms
+import os
+import torch
+import ReducedResNet32 as SResnet32
+import random
+import numpy as np
+
+
+featuresPath = './Features/cifar10_reducedresnet18.pt'
+pretrainedPath = './PretrainedModel/reducedresnet18_ImageNet32.pth.tar'
+
+bs = 50
+seed = 317
+
+train_transform = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+test_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+def set_seed():
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+
+def initFeaturesExtractor():
+
+    assert os.path.isdir('PretrainedModel'), 'Error: no pretrained directory found!'
+    assert os.path.isfile(pretrainedPath) , 'Error: no pretrained file found!'
+    
+    checkpoint = torch.load(pretrainedPath)
+    
+    model = SResnet32.ReducedResNet18(nclasses=1000)
+    
+    model = torch.nn.DataParallel(model).cuda()
+    model.load_state_dict(checkpoint['state_dict'])
+    return model
+
+class CIFAR10REDUCEDRESNET18():
+    def __init__(self, start = 2, step = 2):
+        
+        #self.alpha = 0.9
+        #self.T = 2.3
+        set_seed()
+        self.n_class = 10
+        self.n_features = 160
+    
+        #if os.path.exists(featuresPath):
+        if False:
+            print('Loading features from file...')
+            loaded = torch.load(featuresPath)
+            trainset = torch.utils.data.TensorDataset(loaded['traindata'], loaded['trainlabel'])
+            testset = torch.utils.data.TensorDataset(loaded['testdata'], loaded['testlabel'])
+
+            self.train_features, self.test_features = splitFeatures(trainset, testset, self.n_class, start, step)
+
+        else:
+            experiences = self.n_class // step
+            self.train_features, self.test_features = createFeatures(experiences)
+
+def createFeatures(experiences):
+    #print('Creating features....')
+    benchmark = SplitCIFAR10(n_experiences=experiences, train_transform=train_transform, eval_transform=test_transform)
+
+    featuresExtrator = initFeaturesExtractor()
+
+    train_features = []
+    test_features = []
+
+    for (train_exp, test_exp) in zip(benchmark.train_stream, benchmark.test_stream):
+        current_train_set = train_exp.dataset
+        current_test_set = test_exp.dataset
+
+        current_train_features, current_test_features = getFeatures(featuresExtrator, current_train_set, current_test_set)
+
+        #train_features.append(torch.utils.data.DataLoader(current_train_features, batch_size=bs, shuffle=True, num_workers=0))
+        train_features.append(torch.utils.data.DataLoader(current_train_features, batch_size=bs, shuffle=True, num_workers=0, generator=torch.Generator().manual_seed(seed)))
+        test_features.append(torch.utils.data.DataLoader(current_test_features, batch_size=bs, shuffle=False, num_workers=0))
+    
+
+    return train_features, test_features
+
+
+def splitFeatures(trainset, testset, n_class, start, step):
+    #print('Spliting features.......')
+    train_features=[]
+    test_features=[]
+
+    train_features.append(torch.utils.data.DataLoader(SubDataset(trainset,[j for j in range(start)]), batch_size=bs, shuffle=True, num_workers=0))
+    test_features.append(torch.utils.data.DataLoader(SubDataset(testset,[j for j in range(start)]), batch_size=bs, shuffle=False, num_workers=0))
+    
+    for i in range(start, n_class, step):
+        
+        train_features.append(torch.utils.data.DataLoader(SubDataset(trainset,[i+j for j in range(step)]), batch_size=bs, shuffle=True, num_workers=0))
+        test_features.append(torch.utils.data.DataLoader(SubDataset(testset,[i+j for j in range(step)]), batch_size=bs, shuffle=False, num_workers=0))
+
+    return train_features, test_features
+
+
+
+def getFeatures(model, trainset, testset):
+
+    mini_bs = 1
+    
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=mini_bs, num_workers=0)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=mini_bs, num_workers=0)
+
+
+    empty = torch.tensor([]).cuda()
+    dict = {'traindata': empty, 'trainlabel':empty, 'testdata': empty, 'testlabel':empty}
+
+    model.eval()
+    for (data, target, _) in train_loader:             #Avalanche
+    #for (data, target) in train_loader:
+
+        data, target = data.cuda(), target.cuda()
+        
+        with torch.no_grad():
+            output = model.module.features(data)
+
+            dict['traindata'] =  torch.cat((dict['traindata'], output))
+            dict['trainlabel'] =  torch.cat((dict['trainlabel'], target))
+
+    for (data, target, _) in test_loader:      #Avalanche
+    #for (data, target) in test_loader:
+        data, target = data.cuda(), target.cuda()
+        
+        with torch.no_grad():
+            output = model.module.features(data)
+
+            dict['testdata'] =  torch.cat((dict['testdata'], output))
+            dict['testlabel'] =  torch.cat((dict['testlabel'], target))
+    
+    #saveFeatures(dict, featuresPath)
+
+    train_set = torch.utils.data.TensorDataset(dict['traindata'], dict['trainlabel'])
+    test_set = torch.utils.data.TensorDataset(dict['testdata'], dict['testlabel'])
+
+    return train_set, test_set
+
+def saveFeatures(dict, featuresPath = featuresPath):
+    if os.path.isfile(featuresPath):
+        old_dict = torch.load(featuresPath)
+        old_dict['traindata'] = torch.cat((old_dict['traindata'], dict['traindata']))
+        old_dict['trainlabel'] = torch.cat((old_dict['trainlabel'], dict['trainlabel']))
+        old_dict['testdata'] = torch.cat((old_dict['testdata'], dict['testdata']))
+        old_dict['testlabel'] = torch.cat((old_dict['testlabel'], dict['testlabel']))
+        dict = old_dict
+    torch.save(dict, featuresPath)
+
+from torch.utils.data import Dataset
+class SubDataset(Dataset):
+    def __init__(self, original_dataset, sub_labels, target_transform=None,transform=None):
+        super().__init__()
+        self.dataset = original_dataset
+        self.sub_indeces = []
+        for index in range(len(self.dataset)):
+            if hasattr(original_dataset, "targets"):
+                if self.dataset.target_transform is None:
+                    label = self.dataset.targets[index]
+                else:
+                    label = self.dataset.target_transform(self.dataset.targets[index])
+            else:
+                label = self.dataset[index][1]
+            if label in sub_labels:
+                self.sub_indeces.append(index)
+        self.target_transform = target_transform
+        self.transform=transform
+
+    def __len__(self):
+        return len(self.sub_indeces)
+
+    def __getitem__(self, index):
+        sample = self.dataset[self.sub_indeces[index]]
+        if self.transform:
+            sample=self.transform(sample)
+        if self.target_transform:
+            target = self.target_transform(sample[1])
+            sample = (sample[0], target)
+        return sample
+
+

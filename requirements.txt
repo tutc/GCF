@@ -1,0 +1,8 @@
+python==3.10.14
+torch==1.13.1
+torchvision==0.14.1
+numpy==1.24.1
+scikit-learn==1.4.2
+matplotlib==1.24.1
+tqdm==4.66.4
+avalanche-lib==0.4.0
