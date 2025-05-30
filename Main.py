@@ -389,7 +389,7 @@ def run(data, memorysize = 2000):
     n_clusters = int(memorysize/(data.n_class*2))
     bs = 50
     N_try = 5
-    n_mini_batch = 55
+    n_mini_batch = 50
 
     Time_period = 500
     Time_period_temperature = 150

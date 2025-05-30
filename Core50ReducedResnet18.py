@@ -58,24 +58,10 @@ def initFeaturesExtractor():
 class CORE50REDUCEDRESNET18():
     def __init__(self, experiences = 9):
         
-        #self.alpha = 0.9
-        #self.T = 2.3
         set_seed()
         
         self.n_class = 50
         self.n_features = 160
-        """
-        if os.path.exists(featuresPath):
-            print('Loading features from file...')
-            loaded = torch.load(featuresPath)
-            trainset = torch.utils.data.TensorDataset(loaded['traindata'], loaded['trainlabel'])
-            testset = torch.utils.data.TensorDataset(loaded['testdata'], loaded['testlabel'])
-
-            self.train_features, self.test_features = splitFeatures(trainset, testset, self.n_class, start = 10, step = 5)
-
-        else:
-            self.train_features, self.test_features = createFeatures(experiences)
-        """
         self.train_features, self.test_features = createFeatures(experiences)
 
 def createFeatures(experiences = 9):

@@ -52,24 +52,9 @@ def initFeaturesExtractor():
 class CIFAR100RESNET50():
     def __init__(self, start = 2, step = 2):
         
-        #self.alpha = 0.9
-        #self.T = 2.3
-
         self.n_class = 100
         self.n_features = 2048
 
-        """
-        if os.path.exists(featuresPath):
-            print('Loading features from file...')
-            loaded = torch.load(featuresPath)
-            trainset = torch.utils.data.TensorDataset(loaded['traindata'], loaded['trainlabel'])
-            testset = torch.utils.data.TensorDataset(loaded['testdata'], loaded['testlabel'])
-
-            self.train_features, self.test_features = splitFeatures(trainset, testset, self.n_class, start, step)
-
-        else:
-            self.train_features, self.test_features = createFeatures(step)
-        """
         experiences = self.n_class//step
         self.train_features, self.test_features = createFeatures(experiences)
 

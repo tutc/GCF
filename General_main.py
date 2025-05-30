@@ -24,9 +24,9 @@ def main(args):
 
 
     avg, last, meansize = experiment.run(dataset, args.memory_size)
-    print(avg)
-    print(last)
-    print(meansize)
+    print('Avg: ',avg)
+    print('Last: ',last)
+    print('Memory size: ',meansize)
 
 if __name__ == "__main__":
 

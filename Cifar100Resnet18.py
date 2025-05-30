@@ -51,44 +51,14 @@ def initFeaturesExtractor():
 
     return model
 
-"""
-def initFeaturesExtractor():
-
-    assert os.path.isdir('PretrainedModel'), 'Error: no pretrained directory found!'
-    assert os.path.isfile(pretrainedPath), 'Error: no pretrained file found!'
-    checkpoint = torch.load(pretrainedPath)
-
-    model = models.resnet50().cuda()
-    model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-
-    model = torch.nn.DataParallel(model).cuda()
-    model.load_state_dict(checkpoint['state_dict'])
-    model = torch.nn.Sequential(*list(model.module.children())[:-1])
-
-    return model
-"""
 
 class CIFAR100RESNET18():
     def __init__(self, start = 2, step = 2):
         
-        #self.alpha = 0.9
-        #self.T = 2.3
 
         self.n_class = 100
         self.n_features = 512
 
-        """
-        if os.path.exists(featuresPath):
-            print('Loading features from file...')
-            loaded = torch.load(featuresPath)
-            trainset = torch.utils.data.TensorDataset(loaded['traindata'], loaded['trainlabel'])
-            testset = torch.utils.data.TensorDataset(loaded['testdata'], loaded['testlabel'])
-
-            self.train_features, self.test_features = splitFeatures(trainset, testset, self.n_class, start, step)
-
-        else:
-            self.train_features, self.test_features = createFeatures(step)
-        """
         experiences = self.n_class//step
         self.train_features, self.test_features = createFeatures(experiences)
 
