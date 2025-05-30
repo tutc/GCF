@@ -62,7 +62,7 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, R):
         i = I + 1
         j = J + 1
 
-        # Only compute if element[i, j] is on the current anti-diagonal, and also is within bounds
+        # Only compute if element[i, j] is on the current anti-diagonal, and also is within bounds 
         if I + J == p and (I < max_i and J < max_j):
             # Don't compute if outside bandwidth
             if not (abs(i - j) > bandwidth > 0):

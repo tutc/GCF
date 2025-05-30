@@ -17,7 +17,7 @@ In online continual learning, a neural network can learn from a never-ending str
 ##### Dataset: Split CIFAR-10, Feature extractor: Reduced Resnet-18, Memory size: 1000
 <pre>
   <code id="code-snippet">
-    python General_main.py --dataset cifar10 --backbone reduced --memory 1000
+    python General_main.py --dataset cifar10 --backbone reduced --memory 1000 
   </code>
 </pre>
 ##### Dataset: CORe-50, Feature extractor: Resnet-18, Memory size: 2000

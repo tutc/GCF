@@ -199,7 +199,7 @@ def kmeans_predict(
     return choice_cluster
 
 
-def pairwise_distance(data1, data2, device=torch.device('cuda'), tqdm_flag=True):  #cpu
+def pairwise_distance(data1, data2, device=torch.device('cuda'), tqdm_flag=True):  # cpu
     # if tqdm_flag:
     #     print(f'device is :{device}')
     
