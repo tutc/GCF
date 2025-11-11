@@ -424,6 +424,7 @@ if __name__ == '__main__':
     dataset = benchmarks.Cifar10ReducedResnet18.CIFAR10REDUCEDRESNET18()
     avg_GCF, last_GCF, meansize_GCF = run(dataset, memorySize)
 
+
     print(avg_GCF)
     print(last_GCF)
     print(meansize_GCF)
