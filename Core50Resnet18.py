@@ -176,4 +176,3 @@ class SubDataset(Dataset):
 
 if __name__ == '__main__':
     dataset = CORE50RESNET18(9)
-    

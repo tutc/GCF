@@ -179,5 +179,3 @@ class SubDataset(Dataset):
             target = self.target_transform(sample[1])
             sample = (sample[0], target)
         return sample
-
-
