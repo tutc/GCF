@@ -1,4 +1,3 @@
-
 from avalanche.benchmarks.classic import CORe50
 
 

@@ -1,6 +1,5 @@
 from avalanche.benchmarks.classic import CORe50
 
-
 import os
 import torch
 

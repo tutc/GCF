@@ -1,5 +1,7 @@
 """
+
 Code adapted from https://github.com/facebookresearch/GradientEpisodicMemory
+
 """
 import torch.nn.functional as F
 import torch.nn as nn
